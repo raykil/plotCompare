@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- back plot: open at the bottom-right so the front plot reads as in front -->
+  <path d="M13.5 11 L13.5 8.5 Q13.5 6.5 11.5 6.5 L5 6.5 Q3 6.5 3 8.5 L3 12.5 Q3 14.5 5 14.5 L8.5 14.5" />
+  <!-- front plot -->
+  <rect x="8.5" y="10.5" width="11.5" height="9" rx="2.2" />
+  <!-- single two-pointed swap arrow: a diagonal bow with a head at each end -->
+  <path d="M15.3 3.6Q19.7 3.5 22 7.3" />
+  <path d="M15.3 3.6l1.9 1.1M15.3 3.6l1.9-1.1" />
+  <path d="M22 7.3l-.1-2.2M22 7.3l-1.9-1" />
+</svg>

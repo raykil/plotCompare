@@ -1,0 +1,46 @@
+{
+  "name": "plot-compare",
+  "displayName": "Plot Compare",
+  "description": "Arrange plots into a chosen layout, build a second version, then flip between the two with the arrow keys.",
+  "version": "0.0.1",
+  "publisher": "plot-compare",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:plotCompare.launcher",
+    "onCommand:plotCompare.open"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "plotCompare",
+          "title": "Plot Compare",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "plotCompare": [
+        {
+          "id": "plotCompare.launcher",
+          "name": "Plot Compare",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "plotCompare.open",
+        "title": "Open Plot Compare",
+        "category": "Plot Compare"
+      }
+    ]
+  }
+}
