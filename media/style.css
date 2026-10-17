@@ -35,8 +35,9 @@ body {
 .steps { display: flex; align-items: center; gap: 8px; flex: 1; }
 .step {
   display: flex; align-items: center; gap: 7px;
-  font-size: 12px; opacity: 0.5;
+  font-size: 12px; opacity: 0.5; cursor: pointer;
 }
+.step:hover span:last-child { text-decoration: underline; }
 .step .dot {
   width: 20px; height: 20px; border-radius: 50%;
   display: grid; place-items: center;
@@ -119,8 +120,11 @@ body {
 .template-card .label { font-size: 12px; color: var(--vscode-foreground); }
 
 /* ---------- Version 1 reference (shown while building version 2) ---------- */
+.workspace-body:has(.v1-ref) { display: grid; grid-template-rows: auto minmax(0, 2fr) minmax(0, 3fr); }
 .v1-ref {
-  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   margin-bottom: var(--gap);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -138,20 +142,24 @@ body {
 .v1-ref-grid {
   display: grid;
   gap: 8px;
-}
-.ref-cell {
+  flex: 1;
+  min-height: 0;
+  grid-auto-rows: minmax(0, 1fr);
+}.ref-cell {
   border: 1px solid var(--line);
   border-radius: 5px;
   padding: 6px;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   background: var(--vscode-editor-background);
 }
 .ref-cell img {
   display: block;
   width: 100%;
-  height: 56px;
+  flex: 1;
+  min-height: 0;
   object-fit: contain;
 }
 .ref-cell.empty {
@@ -471,6 +479,12 @@ body {
   overflow: auto;
   align-content: start;
   padding-bottom: 4px;
+  user-select: none;
+}
+.marquee {
+  position: fixed; z-index: 10; pointer-events: none;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 /* List view: one plot per row, thumbnail beside its name. */
 .pick-grid.list {

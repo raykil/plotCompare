@@ -40,6 +40,43 @@
         "command": "plotCompare.open",
         "title": "Open Plot Compare",
         "category": "Plot Compare"
+      },
+      {
+        "command": "plotCompare.add",
+        "title": "Add to Plot Compare"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "plotCompare.add",
+          "when": "explorerResourceIsFolder || resourceExtname =~ /^\\.(png|jpe?g|gif|webp|bmp|svg)$/i",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "plotCompare.add",
+          "when": "view == fileDateExplorer && viewItem =~ /^(file|folder)$/",
+          "group": "6_compare@0"
+        }
+      ],
+      "commandPalette": [{ "command": "plotCompare.add", "when": "false" }]
+    },
+    "keybindings": [
+      {
+        "command": "plotCompare.add",
+        "key": "ctrl+shift+d",
+        "mac": "cmd+shift+d",
+        "when": "filesExplorerFocus && !inputFocus",
+        "args": "copyFilePath"
+      },
+      {
+        "command": "plotCompare.add",
+        "key": "ctrl+shift+d",
+        "mac": "cmd+shift+d",
+        "when": "focusedView == fileDateExplorer",
+        "args": "fileDateDecorator.copyPath"
       }
     ]
   }

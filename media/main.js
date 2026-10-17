@@ -16,6 +16,59 @@
     8: { count: 8, cols: 4, rows: 2, label: "Four by two" },
   };
 
+  // Shift-drag from the Explorer: one document-level handler serves every slot
+  // and directory box, and lets events bubble on to VS Code's webview host.
+  const dropTarget = (e) => e.target.closest?.(".slot, .dirbox");
+  const highlight = (t) => document.querySelectorAll(".slot, .dirbox").forEach((el) => el.classList.toggle("dragover", el === t));
+  document.addEventListener("dragover", (e) => { e.preventDefault(); highlight(dropTarget(e)); });
+  document.addEventListener("dragleave", () => highlight(null));
+  document.addEventListener("drop", (e) => {
+    e.preventDefault();
+    highlight(null);
+    const t = dropTarget(e);
+    if (!t) return;
+    const data = captureDrop(e.dataTransfer);
+    if (t.dataset.dirslot) vscode.postMessage({ type: "resolveDir", data, slot: t.dataset.dirslot });
+    else vscode.postMessage({ type: "resolve", data, version: state.screen === "v1" ? 1 : 2, index: Number(t.dataset.slot) });
+  });
+
+  // Rubber-band selection on the pick screen, like a desktop file manager: drag a rectangle to
+  // select every plot it touches (hold Shift or Cmd to add to the current selection).
+  let band = null; // transient: { x, y, base, hits, box } while a selection rectangle is drawn
+  function endBand() {
+    if (!band || (!band.box && band.onCard)) { band = null; return; } // a plain click on a card toggles it instead
+    band.box?.remove();
+    const sel = [...new Set([...band.base, ...band.hits])];
+    pickWarning = sel.length > 8;
+    state.selected = sel.slice(0, 8);
+    setTimeout(() => (band = null)); // outlive the click that follows, so it can't toggle a card
+    save();
+    render();
+  }
+  document.addEventListener("mousedown", (e) => {
+    const grid = state.screen === "pick" && e.button === 0 && e.target.closest(".pick-grid");
+    if (grid && e.clientX < grid.getBoundingClientRect().left + grid.clientWidth) {
+      band = { x: e.clientX, y: e.clientY, base: e.shiftKey || e.metaKey ? state.selected || [] : [], hits: [], onCard: !!e.target.closest(".pick-card") };
+    }
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (band && !(e.buttons & 1)) return endBand();
+    if (!band || (!band.box && Math.hypot(e.clientX - band.x, e.clientY - band.y) < 5)) return;
+    const l = Math.min(band.x, e.clientX), t = Math.min(band.y, e.clientY);
+    const r = Math.max(band.x, e.clientX), b = Math.max(band.y, e.clientY);
+    band.box ||= document.body.appendChild(Object.assign(document.createElement("div"), { className: "marquee" }));
+    Object.assign(band.box.style, { left: `${l}px`, top: `${t}px`, width: `${r - l}px`, height: `${b - t}px` });
+    band.hits = [];
+    document.querySelectorAll(".pick-card").forEach((card) => {
+      const q = card.getBoundingClientRect();
+      const name = decodeURIComponent(card.dataset.pick);
+      if (q.left < r && q.right > l && q.top < b && q.bottom > t) band.hits.push(name);
+      card.classList.toggle("selected", band.hits.includes(name) || band.base.includes(name));
+    });
+  });
+  document.addEventListener("mouseup", endBand);
+  document.addEventListener("click", (e) => { if (band?.box) e.stopPropagation(); }, true);
+
   // ---- State -------------------------------------------------------------
   // Each slot is null or { name, fileUri, uri }:
   //   fileUri – the original Explorer URI (stable, what we persist)
@@ -38,6 +91,7 @@
   let pickWarning = false; // transient: "max 8" notice on the pick screen
   let loadingCommon = false; // transient: scanning the two directories
   let navIndex = 0; // transient: keyboard-focused card on the template/pick grids
+  let _lastRenderedScreen = null; // transient: screen shown on the previous render
 
   // Columns/rows for an arbitrary plot count (the directory flow has no preset).
   function dimsFor(count) {
@@ -49,6 +103,12 @@
   function save() { vscode.setState(state); }
   const slotsFor = (v) => (v === 1 ? state.v1 : state.v2);
   const isComplete = (v) => state.count > 0 && slotsFor(v).every((s) => !!s);
+
+  // ---- Scroll helpers ----------------------------------------------------
+  // Returns the scrollable element for the current screen (null if none).
+  function scrollEl() {
+    return document.querySelector(".pick-grid") || document.querySelector(".body");
+  }
 
   // ---- Render ------------------------------------------------------------
   function gridStyle() {
@@ -185,7 +245,7 @@
       <div class="body workspace-body">
         <div class="intro">
           <h2>Compare two directories</h2>
-          <p>Hold Shift and drag a folder from the Explorer onto each box. We'll find the plots they share.</p>
+          <p>Right-click a folder in the Explorer → Add to Plot Compare, or Shift-drag one from Finder onto a box. We'll find the plots they share.</p>
         </div>
         <div class="dirgrid">${dirBox("A")}${dirBox("B")}</div>
       </div>
@@ -216,6 +276,7 @@
       <button class="view-btn ${view === "grid" ? "active" : ""}" data-view="grid" title="Grid view" aria-label="Grid view">▦</button>
       <button class="view-btn ${view === "list" ? "active" : ""}" data-view="list" title="List view" aria-label="List view">☰</button>
     </div>`;
+    const unselectAll = n > 0 ? `<button class="ghost-btn" id="unselectall">Unselect all</button>` : "";
 
     return `${topbar()}
       <div class="body workspace-body">
@@ -223,7 +284,7 @@
           <h2>Select plots to compare</h2>
           <p>Choose up to 8 plots that appear in both directories.</p>
         </div>
-        <div class="pick-head">${toggle}</div>
+        <div class="pick-head">${toggle}${unselectAll}</div>
         ${empty}
         <div class="pick-grid ${view}">${cards}</div>
       </div>
@@ -254,7 +315,7 @@
     const nextLabel = version === 1 ? "Next: Version 2 →" : "Compare";
     const heading = version === 1 ? "Build version 1" : "Build version 2";
     const sub = version === 1
-      ? "Hold Shift and drag a plot from the Explorer onto each placeholder."
+      ? "Right-click plots in the Explorer → Add to Plot Compare, or Shift-drag them from Finder onto a placeholder."
       : "Now arrange the second version of the same layout.";
 
     return `${topbar()}
@@ -318,13 +379,28 @@
   }
 
   function render() {
+    // When staying on the same screen, preserve the scroll position so a plot
+    // selection in the pick list doesn't jump back to the top.
+    const stayingSameScreen = _lastRenderedScreen === state.screen;
+    const prevEl = stayingSameScreen ? scrollEl() : null;
+    const savedScroll = prevEl ? prevEl.scrollTop : 0;
+
     if (state.screen === "template") app.innerHTML = templateScreen();
     else if (state.screen === "v1") app.innerHTML = workspaceScreen(1) + debugPanel();
     else if (state.screen === "v2") app.innerHTML = workspaceScreen(2) + debugPanel();
     else if (state.screen === "dirs") app.innerHTML = dirsScreen() + debugPanel();
     else if (state.screen === "pick") app.innerHTML = pickScreen();
     else app.innerHTML = compareScreen();
+
+    _lastRenderedScreen = state.screen;
     bind();
+
+    // Restore scroll position after the DOM is rebuilt.
+    if (savedScroll > 0) {
+      const el = scrollEl();
+      if (el) el.scrollTop = savedScroll;
+    }
+
     // On the card grids, put keyboard focus on the active card so the arrow
     // keys and Enter work immediately (and survive a re-render).
     const navSel = state.screen === "template" ? ".template-card"
@@ -409,22 +485,6 @@
       });
     });
 
-    // Directory drop boxes (accept a Shift-drag of a folder from the Explorer)
-    document.querySelectorAll(".dirbox").forEach((box) => {
-      box.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-        box.classList.add("dragover");
-      });
-      box.addEventListener("dragleave", () => box.classList.remove("dragover"));
-      box.addEventListener("drop", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        box.classList.remove("dragover");
-        vscode.postMessage({ type: "resolveDir", data: captureDrop(e.dataTransfer), slot: box.getAttribute("data-dirslot") });
-      });
-    });
     document.querySelectorAll("[data-removedir]").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (btn.getAttribute("data-removedir") === "A") state.dirA = null;
@@ -449,29 +509,12 @@
         render();
       });
     });
+    const unselectAll = document.getElementById("unselectall");
+    if (unselectAll) unselectAll.addEventListener("click", () => { state.selected = []; pickWarning = false; save(); render(); });
     const doCompare = document.getElementById("docompare");
     if (doCompare) doCompare.addEventListener("click", startDirCompare);
 
-    // Explorer drop targets (slots accept a Shift-drag from the Explorer)
     const version = state.screen === "v1" ? 1 : 2;
-    document.querySelectorAll(".slot").forEach((slot) => {
-      slot.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-        slot.classList.add("dragover");
-      });
-      slot.addEventListener("dragleave", () => slot.classList.remove("dragover"));
-      slot.addEventListener("drop", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        slot.classList.remove("dragover");
-        const index = Number(slot.getAttribute("data-slot"));
-        // Hand the whole drag payload to the extension; it extracts the file
-        // path, converts it to a renderable webview URI, and replies "resolved".
-        vscode.postMessage({ type: "resolve", data: captureDrop(e.dataTransfer), version, index });
-      });
-    });
 
     // Report images that fail to load, so a bad URL is visible (not silent).
     document.querySelectorAll(".slot img, .compare-cell img").forEach((img) => {
@@ -631,6 +674,17 @@
   window.addEventListener("message", (e) => {
     const msg = e.data;
     if (!msg) return;
+
+    // Explorer "Add to Plot Compare": fill the next empty slots (or directory boxes) in order.
+    if (msg.type === "add") {
+      const dirs = state.screen === "dirs";
+      const v = { v1: 1, v2: 2 }[state.screen];
+      const free = dirs ? ["A", "B"].filter((k) => !state[`dir${k}`]) : v ? slotsFor(v).flatMap((s, i) => (s ? [] : [i])) : [];
+      msg.uris.slice(0, free.length).forEach((u, k) => vscode.postMessage(dirs
+        ? { type: "resolveDir", uris: [u], slot: free[k] }
+        : { type: "resolve", uris: [u], version: v, index: free[k] }));
+      return;
+    }
 
     // A dropped directory resolved (or didn't).
     if (msg.type === "dirResolved") {

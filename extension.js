@@ -17,6 +17,13 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand("plotCompare.open", () => {
       PlotComparePanel.createOrShow(context);
+    }),
+    // VS Code never lets an Explorer drag reach a webview, so plots come in via the context menu
+    // (clicked items) or the keybinding (the focused view's copy-path command).
+    vscode.commands.registerCommand("plotCompare.add", async (uri, uris) => {
+      if (typeof uri === "string") uris = await copiedPaths(uri);
+      PlotComparePanel.createOrShow(context);
+      PlotComparePanel.current.panel.webview.postMessage({ type: "add", uris: (uris || [uri]).map((u) => String(u.uri || u)) });
     })
   );
 }
@@ -33,54 +40,20 @@ class LauncherViewProvider {
   }
 
   resolveWebviewView(webviewView) {
-    webviewView.webview.options = { enableScripts: true };
-    webviewView.webview.html = this.getHtml();
+    webviewView.webview.options = { enableScripts: false };
+    // Keep the sidebar panel blank — the real UI lives in the editor tab.
+    webviewView.webview.html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/></head><body style="margin:0;padding:0;"></body></html>`;
 
-    webviewView.webview.onDidReceiveMessage((message) => {
-      if (message && message.type === "open") {
-        vscode.commands.executeCommand("plotCompare.open");
-      }
-    });
-
-    // Open the editor tab as soon as the user clicks the Activity Bar icon.
+    // Open the editor tab and switch the sidebar to the Explorer file tree.
     vscode.commands.executeCommand("plotCompare.open");
+    vscode.commands.executeCommand("workbench.view.explorer");
 
-    // If the user collapses and re-expands the side bar, re-open the tab.
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
         vscode.commands.executeCommand("plotCompare.open");
+        vscode.commands.executeCommand("workbench.view.explorer");
       }
     });
-  }
-
-  getHtml() {
-    return /* html */ `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <style>
-    body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 12px 14px; }
-    p { font-size: 12px; line-height: 1.5; opacity: 0.85; margin: 0 0 14px; }
-    button {
-      width: 100%; padding: 8px 10px; cursor: pointer; border: none; border-radius: 4px;
-      font-size: 13px; color: var(--vscode-button-foreground);
-      background: var(--vscode-button-background);
-    }
-    button:hover { background: var(--vscode-button-hoverBackground); }
-  </style>
-</head>
-<body>
-  <p>Build a plot layout, add a second version, then flip between them with the arrow keys.</p>
-  <button id="open">Open Plot Compare</button>
-  <script>
-    const vscode = acquireVsCodeApi();
-    document.getElementById("open").addEventListener("click", () => {
-      vscode.postMessage({ type: "open" });
-    });
-  </script>
-</body>
-</html>`;
   }
 }
 
@@ -99,15 +72,14 @@ class PlotComparePanel {
       return;
     }
 
-    // The webview may only load images from these roots. We start with the
-    // extension's media folder plus every open workspace folder; when the user
-    // drags a file from the Explorer we widen this to include its folder too,
-    // so plots living anywhere (even outside the workspace) can be shown.
+    // Allow the whole filesystem up front: changing localResourceRoots later
+    // reloads the webview with stale state and silently loses the drop.
     const localResourceRoots = [
       vscode.Uri.joinPath(context.extensionUri, "media"),
+      vscode.Uri.file("/"),
     ];
     for (const folder of vscode.workspace.workspaceFolders || []) {
-      localResourceRoots.push(folder.uri);
+      localResourceRoots.push(folder.uri.with({ path: "/" }));
     }
 
     const panel = vscode.window.createWebviewPanel(
@@ -121,13 +93,12 @@ class PlotComparePanel {
       }
     );
 
-    PlotComparePanel.current = new PlotComparePanel(panel, context, localResourceRoots);
+    PlotComparePanel.current = new PlotComparePanel(panel, context);
   }
 
-  constructor(panel, context, localResourceRoots) {
+  constructor(panel, context) {
     this.panel = panel;
     this.context = context;
-    this.roots = localResourceRoots.slice();
     this.output = vscode.window.createOutputChannel("Plot Compare");
 
     this.panel.webview.html = this.getHtml(this.panel.webview, context);
@@ -201,7 +172,6 @@ class PlotComparePanel {
   resolve(message) {
     const items = [];
     const seen = new Set();
-    let rootsChanged = false;
 
     for (const raw of this.gatherCandidates(message)) {
       const uri = this.toFileUri(raw);
@@ -209,19 +179,12 @@ class PlotComparePanel {
       if (!/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(uri.path)) continue; // images only
       if (seen.has(uri.toString())) continue;
       seen.add(uri.toString());
-
-      // If the file isn't already under an allowed root, add its folder so the
-      // webview is permitted to load it (handles plots outside the workspace).
-      const folder = uri.with({ path: uri.path.replace(/\/[^/]*$/, "") });
-      if (this.ensureRoot(folder)) rootsChanged = true;
       items.push({
         fileUri: uri.toString(),
         name: decodeURIComponent(uri.path.split("/").pop() || uri.toString()),
         uri: this.panel.webview.asWebviewUri(uri).toString(),
       });
     }
-
-    if (rootsChanged) this.applyRoots();
 
     // Diagnostics: log the raw drag payload and what we made of it, and send a
     // compact copy back so a failed drop can show what it actually contained.
@@ -250,29 +213,7 @@ class PlotComparePanel {
     });
   }
 
-  /** Permit the webview to load resources under `uri`; returns true if added. */
-  ensureRoot(uri) {
-    const s = uri.toString();
-    const covered = this.roots.some((r) => {
-      const base = r.toString();
-      return s === base || s.startsWith(base + "/");
-    });
-    if (covered) return false;
-    this.roots.push(uri);
-    return true;
-  }
-
-  applyRoots() {
-    this.panel.webview.options = {
-      enableScripts: true,
-      localResourceRoots: this.roots,
-    };
-  }
-
-  /**
-   * Resolve a dropped folder: find the first candidate that is actually a
-   * directory, widen the allowed roots to it, and report it back.
-   */
+  /** Resolve a dropped folder: report the first candidate that is a directory. */
   async resolveDir(message) {
     let found;
     for (const raw of this.gatherCandidates(message)) {
@@ -287,7 +228,6 @@ class PlotComparePanel {
     }
 
     if (found) {
-      if (this.ensureRoot(found)) this.applyRoots();
       this.log(`directory drop on ${message.slot} -> ${found}`);
       this.panel.webview.postMessage({
         type: "dirResolved",
@@ -337,12 +277,6 @@ class PlotComparePanel {
   async listCommon(message) {
     const dirA = vscode.Uri.parse(message.dirA);
     const dirB = vscode.Uri.parse(message.dirB);
-
-    let changed = false;
-    if (this.ensureRoot(dirA)) changed = true;
-    if (this.ensureRoot(dirB)) changed = true;
-    if (changed) this.applyRoots();
-
     const [namesA, namesB] = await Promise.all([
       this.imageNames(dirA),
       this.imageNames(dirB),
@@ -439,6 +373,14 @@ function collectStrings(value, add) {
   else if (value && typeof value === "object") {
     Object.values(value).forEach((v) => collectStrings(v, add));
   }
+}
+
+async function copiedPaths(copyCommand) {
+  const saved = await vscode.env.clipboard.readText();
+  await vscode.commands.executeCommand(copyCommand);
+  const paths = (await vscode.env.clipboard.readText()).split(/\r?\n/);
+  await vscode.env.clipboard.writeText(saved);
+  return paths;
 }
 
 function getNonce() {
