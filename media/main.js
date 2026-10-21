@@ -245,7 +245,7 @@
       <div class="body workspace-body">
         <div class="intro">
           <h2>Compare two directories</h2>
-          <p>Right-click a folder in the Explorer → Add to Plot Compare, or Shift-drag one from Finder onto a box. We'll find the plots they share.</p>
+          <p>Select a folder in the Explorer and press ⌘⇧D (or right-click → Add to Plot Compare). We'll find the plots they share.</p>
         </div>
         <div class="dirgrid">${dirBox("A")}${dirBox("B")}</div>
       </div>
@@ -315,7 +315,7 @@
     const nextLabel = version === 1 ? "Next: Version 2 →" : "Compare";
     const heading = version === 1 ? "Build version 1" : "Build version 2";
     const sub = version === 1
-      ? "Right-click plots in the Explorer → Add to Plot Compare, or Shift-drag them from Finder onto a placeholder."
+      ? "Select plots in the Explorer and press ⌘⇧D (or right-click → Add to Plot Compare) to fill the placeholders."
       : "Now arrange the second version of the same layout.";
 
     return `${topbar()}

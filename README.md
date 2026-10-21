@@ -9,10 +9,10 @@ arrow keys.
 1. Adds an icon to the **Activity Bar**. Clicking it opens a **Plot Compare**
    tab in the main editor area (not the Explorer side bar).
 2. The tab first shows **six layout choices**: 1, 2, 3, 4, 6, or 8 plots.
-3. Pick one and it lays out that many **placeholders**. Right-click one or more
-   images in the Explorer → **Add to Plot Compare** to fill the next empty
-   placeholders, or **Shift-drag** an image from Finder onto a placeholder.
-   (VS Code does not pass Explorer drags into webviews on macOS.)
+3. Pick one and it lays out that many **placeholders**. Select one or more
+   images (or a folder) in the Explorer and press **⌘⇧D** (Ctrl+Shift+D
+   elsewhere), or right-click → **Add to Plot Compare**, to fill the next
+   empty placeholders.
    PNG/JPG/GIF/WebP/BMP/SVG are accepted.
 4. When every placeholder is filled, the dimmed bottom-right button lights up:
    **Next: Version 2 →**. Click it and fill the same layout a second time.
